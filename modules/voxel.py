@@ -30,8 +30,11 @@ class VoxelCounts:
                 self.voxelCountMap[subjectName]["indexes"][i]=list()
 
     def calculateVoxelCount(self):
+        ## CN, MCI, AD,....
         for subjectName in self.subjectsToCalculate:
+            ## path1, path2, path3, ....
             for path in self.voxelCountMap[subjectName]["paths"]:
+                
                 spacialMapName = path + self.subjectsData.getImageFileName()
                 spacialMap = load4DImageData(spacialMapName)
                 for index in self.voxelCountMap[subjectName]["indexes"]:

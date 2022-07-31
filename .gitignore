@@ -1,8 +1,11 @@
 .ipynb_checkpoints/
 env/
-*.ipynb
 *.png
 *.txt
 *.csv
 *.json
 __pycache__/
+*.log
+values/
+*.zip
+*.pdf

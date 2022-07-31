@@ -8,9 +8,12 @@ import bct
 from matplotlib import pyplot as plt
 import seaborn as sns
 import bct
+import json
 
 from matplotlib import pyplot as plt
 from copy import deepcopy
+
+import traceback
 
 class GraphMetrics:
 
@@ -31,9 +34,11 @@ class GraphMetrics:
         self.graphMetricComponentMeasures = self.subjectsData.getComponentGraphMetrics()
         self.FNCmatFile = self.subjectsData.getFNCFileName()
         self.component_key = self.subjectsData.getComponentKey()
+        self.perPT = self.subjectsData.perPT
 
         self.graphMetricMap = dict()
         self.avgFNCs : 'dict[str, np.ndarray]' = dict()
+        self.avgDiffFNCs : 'dict[str, np.ndarray]' = dict()
         self.dataSetLength = dict()
         self.overallFNC = np.zeros((53,53), dtype=np.float64).reshape(53,53)
         self.prepareGraphMetricMap()
@@ -54,100 +59,143 @@ class GraphMetrics:
             # Avg FNC Matrix of all subjects for each group
             self.avgFNCs[subjectName] = deepcopy(np.zeros((53,53), dtype=np.float64).reshape(53,53))
 
-    def loadMatFile(self,filePath):
-        componentDict = io.loadmat(filePath+self.FNCmatFile)
-        # with open("sam.json", 'w') as file:
-        #     file.write(str(componentDict))
-        return componentDict[self.component_key]
-
     def calculateGraphMetrics(self):
-        for subjectName in self.groupsToCompute:
-            for path in self.graphMetricMap[subjectName]["paths"]:
+        logging.info("<<< calculateGraphMetrics ------")
+        failSubjects = dict()
+        failSubjects['CN'] = 0
+        failSubjects['MCI'] = 0
+        failSubjects['AD'] = 0
 
+        for subjectName in self.groupsToCompute:
+            logging.info('***********subjectName: '+ subjectName+ ' ************')
+            for path in self.graphMetricMap[subjectName]["paths"]:
+                # logging.info('\n'+path)
                 # Preparing FNC Matrix:
                 ## 1. Get timecourse data from .mat file..
-                timecourseData = self.loadMatFile(path)
+                timecourseData = loadMatFile(path)
                 
                 ## 2. Create FNCArray from the timcourseData
                 fncMatrixArray = prepareFNCArray(timecourseData, self.indexList)
 
                 ## 3. threshold the above numpy array for negative values.
-                thresholdedFNCArray = thresholdFNCArray(fncMatrixArray)
+                thresholdedFNCArray = thresholdFNCArray(fncMatrixArray, perPT=self.perPT)
 
                 ## 4. Convert the fncArray to fncMatrix for graph algo..
                 fncMatrix = numpyMatrix(thresholdedFNCArray)
 
                 # for global measures:
+                updateFailureOnce = True
                 for graphMetric in self.graphMetricGlobalMeasues:
-                    if graphMetric == "Global efficiency":
-                        globalEfficieny = nx.global_efficiency(fncMatrix)
-                        self.graphMetricMap[subjectName][graphMetric].append(globalEfficieny)
+                    try:
+                        if graphMetric == "Global efficiency":
+                            globalEfficieny = computeGlobalEfficiency(fncMatrix)
+                            self.graphMetricMap[subjectName][graphMetric].append(globalEfficieny)
 
-                    elif graphMetric == "Characteristic path length":
-                        characteristicPathLength = nx.average_shortest_path_length(fncMatrix, weight='weight')
-                        self.graphMetricMap[subjectName][graphMetric].append(characteristicPathLength)
+                        elif graphMetric == "Characteristic path length":
+                            characteristicPathLength = computeCharacteristicPathLength(fncMatrix)
+                            self.graphMetricMap[subjectName][graphMetric].append(characteristicPathLength)
 
-                    elif graphMetric == "Clustering coefficient":
-                        clusterCofficient = nx.clustering(fncMatrix, weight='weight')
-                        clusterCofficient_network = 0
-                        for i in clusterCofficient:
-                            clusterCofficient_network += clusterCofficient[i]
-                        clusterCofficient_network /= 53
-                        self.graphMetricMap[subjectName][graphMetric].append(clusterCofficient_network)
+                        elif graphMetric == "Clustering coefficient":
+                            clusterCofficient_network = computeClusteringCoefficient(fncMatrix)
+                            self.graphMetricMap[subjectName][graphMetric].append(clusterCofficient_network)
 
-                    else:
-                        print("Not Found: ", graphMetric)
-                        assert(False)
+                        else:
+                            print("Not Found: ", graphMetric)
+                            assert(False)
+                    except:
+                        str1 = "\nGraph Metric: " + graphMetric
+                        logging.info(str1)
+                        if updateFailureOnce:
+                            failSubjects[subjectName] += 1
+                            updateFailureOnce=False
 
                 # for component measures
+                updateFailureOnce = True
                 for graphMetric in self.graphMetricComponentMeasures:
-                    if graphMetric == "Degree":
-                        all_nodes_degree = nx.degree(fncMatrix, weight= 'weight')
-                        for ind in range(len(self.indexList)):
-                            self.graphMetricMap[subjectName][graphMetric][self.indexList[ind]].append(all_nodes_degree[ind])
+                    try:
+                        if graphMetric == "Degree":
+                            all_nodes_degree = computeDegree(fncMatrix)
+                            for ind in range(len(self.indexList)):
+                                self.graphMetricMap[subjectName][graphMetric][self.indexList[ind]].append(all_nodes_degree[ind])
 
-                    elif graphMetric == "Closeness centrality":
-                        all_nodes_cc = nx.closeness_centrality(fncMatrix, distance='weight', wf_improved=False)
-                        for ind in range(len(self.indexList)):
-                            self.graphMetricMap[subjectName][graphMetric][self.indexList[ind]].append(all_nodes_cc[ind])
+                        elif graphMetric == "Closeness centrality":
+                            all_nodes_cc = computeClosenessCentrality(fncMatrix)
+                            for ind in range(len(self.indexList)):
+                                self.graphMetricMap[subjectName][graphMetric][self.indexList[ind]].append(all_nodes_cc[ind])
 
-                    elif graphMetric == "Participation coefficient":
-                        fncMatrix_numpy = nx.to_numpy_array(fncMatrix)
-                        modularity = nx.algorithms.community.greedy_modularity_communities(fncMatrix)
-                        sam=[]
-                        for i in range(len(modularity)):
-                            for j in list(modularity[i]):
-                                sam.append(j)
-                        sam = np.array(sam)
-                        all_nodes_pc = bct.centrality.participation_coef(fncMatrix_numpy, ci=sam, degree='undirected')
-                        for ind in range(len(self.indexList)):
-                            self.graphMetricMap[subjectName][graphMetric][self.indexList[ind]].append(all_nodes_pc[ind])
+                        elif graphMetric == "Participation coefficient":
+                            all_nodes_pc = computeParticipationCoefficient(fncMatrix)
+                            for ind in range(len(self.indexList)):
+                                self.graphMetricMap[subjectName][graphMetric][self.indexList[ind]].append(all_nodes_pc[ind])
 
-                    else:
-                        print("Not Found: ", graphMetric)
-                        assert(False)
+                        else:
+                            print("Not Found: ", graphMetric)
+                            assert(False)
+                    except:
+                        str1 = "\nGraph Metric: " + graphMetric
+                        logging.info(str1)
+                        if updateFailureOnce:
+                            failSubjects[subjectName] += 1
+                            updateFailureOnce=False
+        logging.info('\n*** Failed Subjects ****\n'+json.dumps(failSubjects))
 
-    def calAvgAllGroupFNC(self):
+    def calAvgAllGroupFNC(self, dest=""):
         totalLength = 0
+        domainNames = self.modDomainNames()
         for subjectName in self.groupsToCompute:
             dataSetPaths = self.graphMetricMap[subjectName]["paths"]
             totalLength += len(dataSetPaths)
 
+            # for path in dataSetPaths:
+            #     fncArray = thresholdFNCArray(prepareFNCArray(loadMatFile(path), self.indexList), self.perPT)
+            #     self.avgFNCs[subjectName] = np.add( self.avgFNCs[subjectName] , fncArray)
+
+            timeSeriesData = np.zeros((53,53), dtype=np.float64).reshape(53,53)
+            
+            n = len(self.indexList)
             for path in dataSetPaths:
-                fncArray = thresholdFNCArray(prepareFNCArray(self.loadMatFile(path), self.indexList))
-                self.avgFNCs[subjectName] = np.add( self.avgFNCs[subjectName] , fncArray)
+                componentData = loadMatFile(path)
+                for i in range(n):
+                    for j in range(n):
+                        timeSeriesData[i][j] += componentData[self.indexList[i]-1][self.indexList[j]-1]
+            
+            timeSeriesData /= len(dataSetPaths)
 
-            self.overallFNC = np.add(self.overallFNC, self.avgFNCs[subjectName])
-            self.avgFNCs[subjectName] = self.avgFNCs[subjectName] / len(dataSetPaths)
-            # self.prepareHeatmap(self.avgFNCs[subjectName], subjectName)
-        self.overallFNC = self.overallFNC / totalLength
+            for i in range(n):
+                for j in range(n):
+                    if i==j:
+                        self.avgFNCs[subjectName][i][j] = 0
+                    else:
+                        correlationTimeSeries = calculatePearsonCrossCorrelations(timeSeriesData[i], timeSeriesData[j])
+                        self.avgFNCs[subjectName][i][j] = correlationTimeSeries if correlationTimeSeries >= self.perPT else 0
 
-    def calDiffAvgGroupFNC(self):
-        diffFNCArray = list()
-        for sub1 in range(len(self.groupsToCompute)):
-            for sub2 in range(sub1+1, len(self.groupsToCompute)):
-                subject1 = self.groupsToCompute[sub1]
-                subject2 = self.groupsToCompute[sub2]
+            # self.overallFNC = np.add(self.overallFNC, self.avgFNCs[subjectName])
+            # self.avgFNCs[subjectName] = self.avgFNCs[subjectName] / len(dataSetPaths)
+            
+            prepareHeatmap(
+                domainNames,
+                domainNames,
+                self.avgFNCs[subjectName],
+                subjectName+' FNC',
+                dest,
+                vmin=0,
+                vmax=1
+            )
+        # self.overallFNC = self.overallFNC / totalLength
+    def modDomainNames(self):
+        filteredTicks = deepcopy(self.domainList)
+        for i in range(1, len(self.domainList)):
+            if self.domainList[i] == self.domainList[i-1]:
+                filteredTicks[i]=''
+        return filteredTicks
+
+    def calDiffAvgGroupFNC(self, path=""):
+        domainNames = self.modDomainNames()
+        subjects = list(self.groupsToCompute)
+        for sub1 in range(len(subjects)):
+            for sub2 in range(sub1+1, len(subjects)):
+                subject1 = subjects[sub1]
+                subject2 = subjects[sub2]
 
                 mat1 = deepcopy(self.avgFNCs[subject1])
                 mat2 = deepcopy(self.avgFNCs[subject2])
@@ -156,9 +204,20 @@ class GraphMetrics:
                 row , col = diffMat.shape 
                 for i in range(row):
                     for j in range(col):
-                        diffMat[i][j] = mat1[i][j]-mat2[i][j]
-        return diffFNCArray
+                        diffVal = mat1[i][j] - mat2[i][j]
+                        diffMat[i][j] = diffVal
+                
+                self.avgDiffFNCs[subject1+' Vs '+subject2] = diffMat
 
+                prepareHeatmap(
+                    domainNames,
+                    domainNames,
+                    diffMat,
+                    subject1+' Vs '+subject2+' Difference FNC',
+                    path,
+                    vmin=-1,
+                    vmax=1
+                )
 
     def subjectList(self):
         x = list()
@@ -191,7 +250,7 @@ class GraphMetrics:
             x = [i+1 for i in range(len(dataSetPaths))]
             print("subjectName: ", subjectName, "  Total:", len(dataSetPaths))
             for path in dataSetPaths:
-                fncArray = self.prepareFNCArray(self.loadMatFile(path))
+                fncArray = prepareFNCArray(loadMatFile(path))
                 listA = fncArray.flatten('C')
                 listB = deepcopy(self.overallFNC)
                 crossCorr = self.calculatePearsonCrossCorrelations(listA, listB)

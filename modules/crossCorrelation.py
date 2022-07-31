@@ -1,4 +1,3 @@
-
 import pandas as pd
 import seaborn as sns
 import matplotlib as mt
@@ -30,15 +29,15 @@ class CorrsCorrelations:
         self.graphMetricComponentMeasures = self.subjects.getComponentGraphMetrics()
         self.graphMetricsMeasures = self.graphMetricGlobalMeasues + self.graphMetricComponentMeasures 
 
-        self.CrossListTables = dict()
+        self.CrossListTables: 'dict[str, pd.DataFrame]' = dict()
         self.PListTables = dict()
         self.FDRTables = dict()
         
         self.differencePValues = dict()
         self.differenceFDRValues = dict()
-        self.differenceCrossCorrelation = dict()
+        self.differenceCrossCorrelation: 'dict[str, pd.DataFrame]' = dict()
 
-        self.dummyDataFrame = self.prepareDataFrame()
+        self.dummyDataFrame: pd.DataFrame = self.prepareDataFrame()
 
 
     def prepareDataFrame(self):
@@ -98,16 +97,16 @@ class CorrsCorrelations:
         for subjectName in self.groupsToCompute:
 
             graphMetricsTable = deepcopy(self.dummyDataFrame)
-            pvaluesTables = deepcopy(self.dummyDataFrame)
-            fdrTables = deepcopy(self.dummyDataFrame)
+            # pvaluesTables = deepcopy(self.dummyDataFrame)
+            # fdrTables = deepcopy(self.dummyDataFrame)
 
             # For Global Measure
             for graphMetricName in self.graphMetricGlobalMeasues:
                 indexList = self.indexList
                 corr_list_global = list()
-                p_list_global = list()
-
-                # GraphMetric List of 213-AD, 927-CN,.... subjects 
+                # p_list_global = list()
+                
+                # global graph metric array of 213-AD, 927-CN,.... subjects 
                 xlist_global = self.graphMetrics.getGlobalGraphMetricValues(subjectName, graphMetricName)
                 
                 # 69, 53, 98, ......
@@ -115,12 +114,22 @@ class CorrsCorrelations:
                     
                     # VoxelCount List of 213-AD,927-CN,... for Selected Index 69,57,..... 
                     ylist_global = self.voxels.getVoxelCountsForIndex( subjectName , indexList[j])
+
+                    """
+                        For Group X:
+                        x-list = [ global_graphMetric_sub1, global_graphMetric_sub2, global_graphMetric_sub3, ...]
+                        
+                        Voxel Counts:
+                        At index i: getting ith 3D image from 4D image of subject-X and computing voxel Count.
+                        y-list = [ voxelCount_sub1, voxelCount_sub2, voxelCount_sub3, ...]
+                    """
+
                     # corr_list_global.append(self.AD_Threshold.calculatePearsonCrossCorrelations(xlist_global, ylist_global) )
                     prs, _ = stats.pearsonr(xlist_global, ylist_global)
                     corr_list_global.append(prs)
                     
                     size = len(ylist_global)
-                    p_list_global.append(calculatePvalue(prs,size))
+                    # p_list_global.append(calculatePvalue(prs,size))
 
                 graphMetricsTable.loc[len(graphMetricsTable.index)] = corr_list_global
                 # pvaluesTables.loc[len(pvaluesTables.index)] = p_list_global
@@ -130,7 +139,7 @@ class CorrsCorrelations:
             for graphMetricName in self.graphMetricComponentMeasures:
                 indexList = self.indexList
                 corr_list_component = list()
-                p_list_component = list()
+                # p_list_component = list()
 
                 # 69, 53, 98, ......
                 for j in range(len(indexList)):
@@ -142,7 +151,7 @@ class CorrsCorrelations:
                     corr_list_component.append(prs)
                     
                     size = len(xlist_component)
-                    p_list_component.append(calculatePvalue(prs, size))
+                    # p_list_component.append(calculatePvalue(prs, size))
                     # p_list_component.append(round(pval, 5))
 
                 graphMetricsTable.loc[len(graphMetricsTable.index)] = corr_list_component
@@ -164,32 +173,74 @@ class CorrsCorrelations:
             # Ptable.to_csv(key+'-p_values.csv')
             self.generateImageFromDataFrame(Ptable, key+'-pTable')
 
-    def saveCrossCorrelation(self):
+    def saveCrossCorrelation(self, path: str="", valueFiles: str = "sample.txt"):
+        logging.info("<<< saveCrossCorrelation -------")
+
         vmin = 100
         vmax = -100
         for key in self.CrossListTables:
-            vmin = min(vmin, min(self.CrossListTables[key].min().values))
+            vmin = min( vmin, min(self.CrossListTables[key].min().values))
             vmax = max( vmax, max(self.CrossListTables[key].max().values) )
-        print(vmin, vmax)
+        
+        logging.info("vmin: %s, vmax: %s", vmin, vmax)
+        logging.info("Logging Correlation Data to: %s", path+valueFiles)
+
         for key in self.CrossListTables:
-            CrossCorr = self.CrossListTables[key]
-            # CrossCorrTable = self.CrossListTables[key]
-            # Ptable.to_csv(key+'-p_values.csv')
-            self.generateImageFromDataFrame(CrossCorr, name=key+": Cross Correlation", vmin=vmin, vmax=vmax)
+            logging.info("Correlation Table of: %s", key)
+            crossCorr = self.CrossListTables[key]
+            self.generateImageFromDataFrame(
+                crossCorr, 
+                path=path,
+                name=key+": Correlation", 
+                vmin=vmin, 
+                vmax=vmax, 
+                metricX = 'Correlation between Graph Metrics Vs Voxel Counts for each node', 
+                metricY='Graph Metric Measures'
+            )
+
+            ## Logging table to a file.
+            crossCorr.to_csv(
+                path_or_buf=path+valueFiles,
+                sep=',',
+                mode='a'
+            )
+
+        logging.info(">>> saveCrossCorrelation --------")
     
-    def saveDifferenceCrossCorrelation(self):
+    def saveDifferenceCrossCorrelation(self, path: str="",valueFiles: str = "sample.txt"):
+        logging.info("<<< saveDifferenceCrossCorrelation -------")
+
         vmin = 100
         vmax = -100
         for key in self.differenceCrossCorrelation:
-            vmin = min( vmin, min(self.differenceCrossCorrelation[key].min().values))
+            vmin = min( vmin, min(self.differenceCrossCorrelation[key].min().values) )
             vmax = max( vmax, max(self.differenceCrossCorrelation[key].max().values) )
-        print(vmin, vmax)
+
+        logging.info("vmin: %s, vmax: %s", vmin, vmax)
+        logging.info("Logging Correlation Data to: %s", path+valueFiles)
+
         for key in self.differenceCrossCorrelation:
+            logging.info("Correlation Table of: %s", key)
             diffCrossCorr = self.differenceCrossCorrelation[key]
-            # CrossCorrTable = self.CrossListTables[key]
-            # Ptable.to_csv(key+'-p_values.csv')
-            self.generateImageFromDataFrame(diffCrossCorr, name=key+": Difference Correlations", vmin=vmin, vmax=vmax)
-            
+
+            self.generateImageFromDataFrame(
+                diffCrossCorr, 
+                path=path,
+                name=key+": difference of correlations", 
+                vmin=vmin, 
+                vmax=vmax,
+                metricX = 'Correlation differences between Groups', 
+                metricY='Graph Metric Measures'
+            )
+
+            ## Logging the table to a file.
+            diffCrossCorr.to_csv(
+                path_or_buf=path+valueFiles,
+                sep=',',
+                mode='a'
+            )
+        
+        logging.info(">>> saveDifferenceCrossCorrelation -------")
 
     def saveFDRValues(self):
         for key in self.FDRTables:
@@ -212,7 +263,11 @@ class CorrsCorrelations:
 
         self.generateImageFromDataFrame(deepcopy(diff), subjectName, 0, 1)
 
-    def generateImageFromDataFrame(self, table, name, vmin=None, vmax=None):
+    def generateImageFromDataFrame(self, table, name: str, path: str = "",  vmin=-1, vmax=1, metricX: str = "Not Specified", metricY: str = "Not Specified"):
+        
+        logging.info("<<< generateImageFromDataFrame ---------")
+        logging.info(" name: %s, path: %s, vmin: %s, vmax: %s, metricX: %s, metricY: %s", name, path, vmin, vmax, metricX, metricY)
+
         fig, ax = mt.pyplot.subplots(figsize=(90,10))
         columnsName = table.columns.values
         rowsName = table.index.values
@@ -222,17 +277,23 @@ class CorrsCorrelations:
                 xticklabels=columnsName, yticklabels=rowsName,  annot=True, vmax=vmax, annot_kws = { "size": 18 },
                 cbar_kws={"fraction": 0.046, "pad": 0.01}
             )
-        # else:
-        #     sd = sns.heatmap(
-        #             table, cmap='coolwarm', square=True, ax=ax, linewidth='0.5', center=0, vmin=-0.5,
-        #             xticklabels=columnsName, yticklabels=rowsName,  annot=True, vmax=0.5,
-        #             cbar_kws={"fraction": 0.046, "pad": 0.04}
-        #         )
 
         sd.set_yticklabels(labels= rowsName,fontsize=30, weight='bold')
         sd.set_xticklabels(labels= columnsName,fontsize=30, weight='bold')
         plt.margins(0)
         ax.set_title(name, fontsize=40,  fontweight='bold')
-        # ax.tick_params(axis='both', which='major', labelsize=30,width=3, color=(0,0,0))
-        # ax.tick_params(axis='both', which='minor', labelsize=30,width=3, color=(0,0,0))
-        plt.savefig(name+'.png')
+        plt.xlabel(metricX, fontweight='bold', fontsize=40)
+        plt.ylabel(metricY, fontweight='bold', fontsize=40)
+        ax.tick_params(axis='both', which='minor', labelsize=30,width=3, color=(0,0,0))
+        plt.savefig(
+            path+name+'.png',
+            pad_inches = 1,
+			transparent = True,
+			facecolor ="w",
+			edgecolor ='g',
+			orientation ='landscape',
+            format='png'
+        )
+        plt.close()
+
+        logging.info(">>> generateImageFromDataFrame ---------")
