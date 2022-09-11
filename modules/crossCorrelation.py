@@ -212,9 +212,9 @@ class CorrsCorrelations:
 
         vmin = 100
         vmax = -100
-        for key in self.differenceCrossCorrelation:
-            vmin = min( vmin, min(self.differenceCrossCorrelation[key].min().values) )
-            vmax = max( vmax, max(self.differenceCrossCorrelation[key].max().values) )
+        #for key in self.differenceCrossCorrelation:
+            #vmin = min( vmin, min(self.differenceCrossCorrelation[key].min().values) )
+            #vmax = max( vmax, max(self.differenceCrossCorrelation[key].max().values) )
 
         logging.info("vmin: %s, vmax: %s", vmin, vmax)
         logging.info("Logging Correlation Data to: %s", path+valueFiles)

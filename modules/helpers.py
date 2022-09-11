@@ -394,7 +394,7 @@ def two_Sample_t_test(arr1: np.ndarray, arr2: np.ndarray,mean_1: np.float ,mean_
     df_value = df_value_numerator / df_value_denominator
     logging.info("df: %s", df_value)
 
-    p_value = round(2*stats.t.sf(abs(t_value), df_value), 3)
+    p_value = 2*stats.t.sf(abs(t_value), df_value)
     logging.info("p-val: %s", p_value)
 
     logging.info(">>> two_Sample_t_test ------")
